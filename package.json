@@ -1,0 +1,40 @@
+{
+  "name": "automacao-effort",
+  "version": "0.1.0",
+  "description": "Abertura e fechamento de OS de calibração no Effort",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.0"
+  },
+  "build": {
+    "appId": "br.org.medsystem.automacao-effort",
+    "productName": "Automação Effort",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "browsers",
+        "to": "browsers"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "perMachine": false,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

@@ -1,0 +1,19 @@
+# Dependências
+node_modules/
+
+# Credenciais
+.env
+
+# Dados gerados pela automação
+output/
+debug/
+*.log
+
+# Planilhas e anexos de trabalho
+*.xlsx
+!exemplo*.xlsx
+
+# Sistema operacional e editor
+.DS_Store
+Thumbs.db
+.vscode/
