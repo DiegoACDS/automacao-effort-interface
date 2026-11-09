@@ -7,116 +7,305 @@
   <title>Automação Effort</title>
   <style>
     [hidden] { display: none !important; }
-    body { font-family: Segoe UI, Arial, sans-serif; margin: 20px; color: #222; }
-    h2 { margin-top: 0; }
-    h3 { margin: 0 0 12px 0; font-size: 16px; }
-    .bloco { border: 1px solid #ddd; border-radius: 6px; padding: 14px; margin-bottom: 16px; }
-    .linha { margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
-    .rotulo { display: inline-block; width: 170px; font-weight: 600; }
-    .valor { flex: 1; word-break: break-all; }
-    .grade { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 12px 20px; margin-bottom: 12px; }
-    label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 14px; }
-    input[type="text"], input[type="password"], input[type="datetime-local"] { padding: 6px; font-size: 14px; }
-    .aceite { display: flex; gap: 8px; align-items: flex-start; font-weight: normal; margin: 8px 0; }
-    .ajuda { font-size: 12px; color: #666; margin: 4px 0 12px 0; }
-    button { padding: 8px 16px; cursor: pointer; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      margin: 0;
+      background: #f4f6fa;
+      color: #1f2937;
+    }
+    .topo {
+      background: linear-gradient(135deg, #1f4e78, #2d6da3);
+      color: #fff;
+      padding: 20px 28px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .topo h2 { margin: 0; font-size: 20px; font-weight: 600; }
+    .topo .sub { font-size: 13px; opacity: 0.85; }
+    .topo .logo {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: rgba(255,255,255,0.15);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+    }
+    main { padding: 24px; max-width: 980px; margin: 0 auto; }
+    .bloco {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 20px 22px;
+      margin-bottom: 18px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .bloco h3 {
+      margin: 0 0 14px 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #1f4e78;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .bloco h3 .num {
+      background: #1f4e78;
+      color: #fff;
+      width: 22px; height: 22px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+    .linha { margin-bottom: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .rotulo { display: inline-block; width: 170px; font-weight: 600; font-size: 14px; }
+    .valor {
+      flex: 1;
+      word-break: break-all;
+      font-size: 13px;
+      color: #4b5563;
+      background: #f9fafb;
+      border: 1px dashed #d1d5db;
+      border-radius: 8px;
+      padding: 8px 10px;
+      min-width: 200px;
+    }
+    .grade {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      gap: 14px 20px;
+      margin-bottom: 12px;
+    }
+    label {
+      display: flex; flex-direction: column; gap: 5px;
+      font-weight: 600; font-size: 13px; color: #374151;
+    }
+    input[type="text"], input[type="password"], input[type="datetime-local"] {
+      padding: 9px 10px;
+      font-size: 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      background: #fff;
+    }
+    input:focus {
+      border-color: #2d6da3;
+      box-shadow: 0 0 0 3px rgba(45,109,163,0.15);
+    }
+    .aceite {
+      display: flex; gap: 8px; align-items: flex-start;
+      font-weight: normal; margin: 10px 0;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 13px;
+    }
+    .ajuda { font-size: 12px; color: #6b7280; margin: 4px 0 12px 0; }
+    button {
+      padding: 9px 18px;
+      cursor: pointer;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      background: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      color: #374151;
+      transition: background 0.15s, transform 0.05s;
+    }
+    button:hover:not(:disabled) { background: #f3f4f6; }
+    button:active:not(:disabled) { transform: scale(0.98); }
     button:disabled { cursor: not-allowed; opacity: 0.5; }
-    button.primario { background: #1f4e78; color: #fff; border: none; }
-    #mensagem { margin: 8px 0; font-weight: 600; }
-    #mensagem.erro { color: #b00020; }
-    #mensagem.ok { color: #1a7f37; }
+    button.primario {
+      background: #1f4e78;
+      color: #fff;
+      border: none;
+    }
+    button.primario:hover:not(:disabled) { background: #2d6da3; }
+    #mensagem {
+      margin: 10px 0;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      display: none;
+    }
+    #mensagem.erro { display: block; color: #b00020; background: #fef2f2; border: 1px solid #fecaca; }
+    #mensagem.ok { display: block; color: #166534; background: #f0fdf4; border: 1px solid #bbf7d0; }
+    #mensagem:empty { display: none; }
+    /* Barra de progresso */
+    #barraLote { margin: 4px 0 14px 0; }
+    #barraLote .cabecalho {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    #barraLote .trilha {
+      height: 12px;
+      background: #e5e7eb;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    #barraLote .preenchimento {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #2d6da3, #1f4e78);
+      border-radius: 999px;
+      transition: width 0.4s ease;
+    }
     table { border-collapse: collapse; width: 100%; margin-top: 12px; }
-    th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; font-size: 14px; vertical-align: top; }
-    th { background: #f0f0f0; }
-    .ok { color: #1a7f37; font-weight: 600; }
+    th, td {
+      border: 1px solid #e5e7eb;
+      padding: 8px 10px;
+      text-align: left;
+      font-size: 13px;
+      vertical-align: top;
+    }
+    th {
+      background: #f8fafc;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #4b5563;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge.ok { background: #dcfce7; color: #166534; }
+    .badge.alerta { background: #fef3c7; color: #92400e; }
+    .badge.erro { background: #fee2e2; color: #b00020; }
+    .ok { color: #166534; font-weight: 600; }
     .alerta { color: #b35900; font-weight: 600; }
-    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; }
-    .caixa { background: #fff; border-radius: 8px; padding: 20px; width: 460px; max-width: 90%; }
+    .overlay {
+      position: fixed; inset: 0;
+      background: rgba(15,23,42,0.5);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 10;
+    }
+    .caixa {
+      background: #fff;
+      border-radius: 14px;
+      padding: 24px;
+      width: 480px;
+      max-width: 92%;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+    }
+    .caixa h3 { margin-top: 0; }
+    .caixa ul { padding-left: 18px; font-size: 14px; line-height: 1.7; }
+    .caixa .linha { justify-content: flex-end; margin-top: 16px; }
   </style>
 </head>
 <body>
-  <h2>Automação Effort</h2>
-
-  <section class="bloco">
-    <h3>1. Arquivos</h3>
-
-    <div class="linha">
-      <span class="rotulo">Planilha (ALX):</span>
-      <span id="planilha" class="valor">Nenhuma selecionada</span>
-      <button id="btnPlanilha">Selecionar</button>
+  <header class="topo">
+    <div class="logo">⚙️</div>
+    <div>
+      <h2>Automação Effort</h2>
+      <div class="sub">Abertura, mão de obra, anexo e fechamento de OS</div>
     </div>
+  </header>
 
-    <div class="linha">
-      <span class="rotulo">Pasta de anexos (PDF):</span>
-      <span id="pasta" class="valor">Nenhuma selecionada</span>
-      <button id="btnPasta">Selecionar</button>
-    </div>
+  <main>
+    <section class="bloco">
+      <h3><span class="num">1</span> Arquivos</h3>
 
-    <div class="linha">
-      <span class="rotulo">Pasta dos relatórios:</span>
-      <span id="pastaRelatorios" class="valor">Carregando...</span>
-      <button id="btnPastaRelatorios">Alterar</button>
-    </div>
+      <div class="linha">
+        <span class="rotulo">Planilha (ALX):</span>
+        <span id="planilha" class="valor">Nenhuma selecionada</span>
+        <button id="btnPlanilha">Selecionar</button>
+      </div>
 
-    <div class="linha">
-      <button id="btnValidar">Pré-validar</button>
-      <button id="btnRelatorios">Abrir relatórios</button>
-    </div>
+      <div class="linha">
+        <span class="rotulo">Pasta de anexos (PDF):</span>
+        <span id="pasta" class="valor">Nenhuma selecionada</span>
+        <button id="btnPasta">Selecionar</button>
+      </div>
 
-    <div id="mensagem"></div>
-    <div id="resumo"></div>
-    <div id="resultado"></div>
-  </section>
+      <div class="linha">
+        <span class="rotulo">Pasta dos relatórios:</span>
+        <span id="pastaRelatorios" class="valor">Carregando...</span>
+        <button id="btnPastaRelatorios">Alterar</button>
+      </div>
 
-  <section id="secaoLote" class="bloco">
-    <h3>2. Datas e horários do lote</h3>
-    <div class="grade">
-      <label>Abertura
-        <input type="datetime-local" id="dt-abertura">
-      </label>
-      <label>Início da mão de obra
-        <input type="datetime-local" id="dt-inicio">
-      </label>
-      <label>Término da mão de obra
-        <input type="datetime-local" id="dt-termino">
-      </label>
-      <label>Fechamento
-        <input type="datetime-local" id="dt-fechamento">
-      </label>
-    </div>
-    <p class="ajuda">Estes valores são usados em todos os equipamentos do lote.</p>
+      <div class="linha">
+        <button id="btnValidar">Pré-validar</button>
+        <button id="btnRelatorios">Abrir relatórios</button>
+      </div>
 
-    <h3>3. Acesso ao Effort</h3>
-    <div class="grade">
-      <label>Usuário
-        <input type="text" id="usuario" autocomplete="off">
-      </label>
-      <label>Senha
-        <input type="password" id="senha" autocomplete="new-password">
-      </label>
-    </div>
-    <p class="ajuda">A senha fica somente na memória durante o lote e é apagada da tela ao iniciar.</p>
+      <div id="mensagem"></div>
+      <div id="resumo"></div>
+      <div id="resultado"></div>
+    </section>
 
-    <div id="blocoAceite" hidden>
-      <label class="aceite">
-        <input type="checkbox" id="aceitePendencias">
-        <span>Entendo que <b id="qtdPendentes">0</b> equipamento(s) com pendência serão ignorados e registrados no relatório.</span>
-      </label>
-    </div>
+    <section id="secaoLote" class="bloco">
+      <h3><span class="num">2</span> Datas e horários do lote</h3>
+      <div class="grade">
+        <label>Abertura
+          <input type="datetime-local" id="dt-abertura">
+        </label>
+        <label>Início da mão de obra
+          <input type="datetime-local" id="dt-inicio">
+        </label>
+        <label>Término da mão de obra
+          <input type="datetime-local" id="dt-termino">
+        </label>
+        <label>Fechamento
+          <input type="datetime-local" id="dt-fechamento">
+        </label>
+      </div>
+      <p class="ajuda">Ao mudar a abertura, os demais horários são preenchidos automaticamente (+5 e +10 minutos) e continuam editáveis.</p>
 
-    <button id="btnIniciar" class="primario" disabled>Iniciar lote</button>
-  </section>
+      <h3><span class="num">3</span> Acesso ao Effort</h3>
+      <div class="grade">
+        <label>Usuário
+          <input type="text" id="usuario" autocomplete="off">
+        </label>
+        <label>Senha
+          <input type="password" id="senha" autocomplete="new-password">
+        </label>
+      </div>
+      <p class="ajuda">A senha fica somente na memória durante o lote e é apagada da tela ao iniciar.</p>
 
-  <section id="secaoProgresso" class="bloco" hidden>
-    <h3>4. Andamento</h3>
-    <table>
-      <thead>
-        <tr><th>Código ALX</th><th>Situação</th><th>Motivo</th></tr>
-      </thead>
-      <tbody id="progresso"></tbody>
-    </table>
-    <div id="resultadoLote"></div>
-  </section>
+      <div id="blocoAceite" hidden>
+        <label class="aceite">
+          <input type="checkbox" id="aceitePendencias">
+          <span>Entendo que <b id="qtdPendentes">0</b> equipamento(s) com pendência serão ignorados e registrados no relatório.</span>
+        </label>
+      </div>
+
+      <button id="btnIniciar" class="primario" disabled>Iniciar lote</button>
+    </section>
+
+    <section id="secaoProgresso" class="bloco" hidden>
+      <h3><span class="num">4</span> Andamento</h3>
+
+      <div id="barraLote">
+        <div class="cabecalho">
+          <span id="rotuloBarra">Aguardando...</span>
+          <span id="percentualBarra">0%</span>
+        </div>
+        <div class="trilha">
+          <div class="preenchimento" id="preenchimentoBarra"></div>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr><th>Código ALX</th><th>Situação</th><th>Motivo</th></tr>
+        </thead>
+        <tbody id="progresso"></tbody>
+      </table>
+      <div id="resultadoLote"></div>
+    </section>
+  </main>
 
   <div id="modal" class="overlay" hidden>
     <div class="caixa">

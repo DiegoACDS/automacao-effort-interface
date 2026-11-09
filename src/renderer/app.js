@@ -6,6 +6,12 @@ const estado = {
   rodando: false
 };
 
+// Controle da barra de progresso do lote.
+const barra = {
+  total: 0,
+  processados: 0
+};
+
 const CAMPOS_DATA = ['abertura', 'inicio', 'termino', 'fechamento'];
 const ROTULO_DATA = {
   abertura: 'Abertura',
@@ -13,24 +19,19 @@ const ROTULO_DATA = {
   termino: 'Término da mão de obra',
   fechamento: 'Fechamento'
 };
-
 // Situações que aparecem em verde no andamento. As demais aparecem em laranja.
 const SITUACOES_OK = ['Consultado', 'Pronto'];
-
 const el = (id) => document.getElementById(id);
-
 function escapar(texto) {
   return String(texto ?? '').replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
   );
 }
-
 function mostrarMensagem(texto, tipo = 'erro') {
   const m = el('mensagem');
   m.textContent = texto || '';
   m.className = tipo;
 }
-
 // Horário atual no formato aceito por datetime-local (sem segundos).
 function agoraLocal() {
   const d = new Date();
@@ -38,7 +39,6 @@ function agoraLocal() {
   const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 16);
 }
-
 // Impede o seletor do navegador de escolher datas futuras.
 function atualizarLimitesDatas() {
   const maximo = agoraLocal();
@@ -46,14 +46,11 @@ function atualizarLimitesDatas() {
     el(`dt-${c}`).max = maximo;
   });
 }
-
 function lerDatas() {
   return Object.fromEntries(CAMPOS_DATA.map((c) => [c, el(`dt-${c}`).value]));
 }
-
 function validarDatasNaTela(datas) {
   const agora = Date.now();
-
   for (const c of CAMPOS_DATA) {
     if (!datas[c]) {
       return `Informe a data e a hora de ${ROTULO_DATA[c].toLowerCase()}.`;
@@ -65,7 +62,6 @@ function validarDatasNaTela(datas) {
       );
     }
   }
-
   for (let i = 1; i < CAMPOS_DATA.length; i += 1) {
     const anterior = CAMPOS_DATA[i - 1];
     const atual = CAMPOS_DATA[i];
@@ -76,20 +72,57 @@ function validarDatasNaTela(datas) {
       );
     }
   }
-
   return null;
 }
-
+// Soma minutos a um valor datetime-local e devolve no mesmo formato.
+function somarMinutos(valorLocal, minutos) {
+  if (!valorLocal) return '';
+  const data = new Date(valorLocal);
+  if (Number.isNaN(data.getTime())) return '';
+  data.setMinutes(data.getMinutes() + minutos);
+  const dois = (n) => String(n).padStart(2, '0');
+  return (
+    `${data.getFullYear()}-${dois(data.getMonth() + 1)}-${dois(data.getDate())}` +
+    `T${dois(data.getHours())}:${dois(data.getMinutes())}`
+  );
+}
+// Padrão de horários a partir da abertura:
+// início = abertura, término = abertura + 5 min, fechamento = abertura + 10 min.
+// Chamado quando a abertura muda; os campos continuam editáveis à mão depois.
+function aplicarPadraoHorarios() {
+  const abertura = el('dt-abertura').value;
+  if (!abertura) return;
+  el('dt-inicio').value = abertura;
+  el('dt-termino').value = somarMinutos(abertura, 5);
+  el('dt-fechamento').value = somarMinutos(abertura, 10);
+  atualizarBotaoIniciar();
+}
 function formatarDataHora(valor) {
   const [data, hora] = valor.split('T');
   const [ano, mes, dia] = data.split('-');
   return `${dia}/${mes}/${ano} ${hora}`;
 }
-
 function classeSituacao(situacao) {
   return SITUACOES_OK.includes(situacao) ? 'ok' : 'alerta';
 }
-
+// Badges por situação: verde = sucesso, laranja = pendência/pulado,
+// vermelho = exceção.
+function classeBadge(situacao) {
+  if (SITUACOES_OK.includes(situacao)) return 'ok';
+  if (situacao === 'Exceção' || situacao === 'Erro no processamento') return 'erro';
+  return 'alerta';
+}
+function atualizarBarra() {
+  const percentual = barra.total > 0
+    ? Math.round((barra.processados / barra.total) * 100)
+    : 0;
+  el('preenchimentoBarra').style.width = `${percentual}%`;
+  el('percentualBarra').textContent = `${percentual}%`;
+  el('rotuloBarra').textContent =
+    barra.processados >= barra.total && barra.total > 0
+      ? 'Lote concluído'
+      : `${barra.processados} de ${barra.total} equipamento(s) processado(s)`;
+}
 // Durante o lote, nenhum controle pode alterar os dados em execução.
 function bloquearControles(bloquear) {
   const ids = [
@@ -107,15 +140,12 @@ function bloquearControles(bloquear) {
     el(id).disabled = bloquear;
   });
 }
-
 function atualizarBotaoIniciar() {
   atualizarLimitesDatas();
-
   const v = estado.validacao;
   const pendentes = v ? v.total - v.ok : 0;
   el('blocoAceite').hidden = pendentes === 0;
   el('qtdPendentes').textContent = pendentes;
-
   const aceite = pendentes === 0 || el('aceitePendencias').checked;
   const pronto =
     Boolean(v && v.ok > 0) &&
@@ -125,10 +155,8 @@ function atualizarBotaoIniciar() {
     el('usuario').value.trim() !== '' &&
     el('senha').value !== '' &&
     aceite;
-
   el('btnIniciar').disabled = !pronto;
 }
-
 function limparResultado() {
   estado.validacao = null;
   el('resumo').innerHTML = '';
@@ -136,7 +164,6 @@ function limparResultado() {
   el('aceitePendencias').checked = false;
   atualizarBotaoIniciar();
 }
-
 async function atualizarPastaRelatorios() {
   const r = await window.api.obterPastaRelatorios();
   if (r.erro) {
@@ -149,9 +176,7 @@ async function atualizarPastaRelatorios() {
   }
   atualizarBotaoIniciar();
 }
-
 // ---------- Arquivos ----------
-
 el('btnPlanilha').onclick = async () => {
   const caminho = await window.api.selecionarPlanilha();
   if (!caminho) return;
@@ -160,7 +185,6 @@ el('btnPlanilha').onclick = async () => {
   mostrarMensagem('');
   limparResultado();
 };
-
 el('btnPasta').onclick = async () => {
   const caminho = await window.api.selecionarPasta();
   if (!caminho) return;
@@ -169,7 +193,6 @@ el('btnPasta').onclick = async () => {
   mostrarMensagem('');
   limparResultado();
 };
-
 el('btnPastaRelatorios').onclick = async () => {
   const r = await window.api.escolherPastaRelatorios();
   if (!r) return;
@@ -182,40 +205,31 @@ el('btnPastaRelatorios').onclick = async () => {
   mostrarMensagem('');
   atualizarBotaoIniciar();
 };
-
 el('btnRelatorios').onclick = async () => {
   const r = await window.api.abrirRelatorios();
   if (r.erro) mostrarMensagem(`Não foi possível abrir a pasta: ${r.erro}`);
 };
-
 // ---------- Pré-validação ----------
-
 el('btnValidar').onclick = async () => {
   if (estado.rodando) return;
-
   mostrarMensagem('');
   limparResultado();
-
   if (!estado.planilhaPath || !estado.pastaAnexos) {
     mostrarMensagem('Selecione a planilha e a pasta de anexos antes de validar.');
     return;
   }
-
   const botao = el('btnValidar');
   botao.disabled = true;
   botao.textContent = 'Validando...';
-
   try {
     const r = await window.api.preValidar({
       planilhaPath: estado.planilhaPath,
       pastaAnexos: estado.pastaAnexos
     });
-
     if (r.erro) {
       mostrarMensagem(r.erro);
       return;
     }
-
     estado.validacao = r;
     renderizarResultado(r);
     atualizarBotaoIniciar();
@@ -224,11 +238,9 @@ el('btnValidar').onclick = async () => {
     botao.textContent = 'Pré-validar';
   }
 };
-
 function renderizarResultado(r) {
   const pendentes = r.total - r.ok;
   const semLinha = r.pdfsSemLinha.length;
-
   el('resumo').innerHTML =
     `<p><b>${r.ok}</b> de <b>${r.total}</b> equipamentos prontos` +
     (pendentes > 0 ? `, <b>${pendentes}</b> com pendência` : '') +
@@ -236,7 +248,6 @@ function renderizarResultado(r) {
     (pendentes === 0 && semLinha === 0
       ? '<p class="ok">Todos os equipamentos estão prontos para o lote.</p>'
       : '<p class="alerta">Pendências serão ignoradas e registradas no relatório, se você confirmar abaixo.</p>');
-
   const linhas = r.itens.map((i) => `
     <tr>
       <td>${escapar(i.linha)}</td>
@@ -245,7 +256,6 @@ function renderizarResultado(r) {
       <td>${escapar(i.motivo)}</td>
       <td>${escapar(i.arquivo || '')}</td>
     </tr>`).join('');
-
   const extras = r.pdfsSemLinha.map((p) => `
     <tr>
       <td>-</td>
@@ -254,7 +264,6 @@ function renderizarResultado(r) {
       <td>${escapar(p.motivo)}</td>
       <td>${escapar(p.arquivo)}</td>
     </tr>`).join('');
-
   el('resultado').innerHTML = `
     <table>
       <thead>
@@ -269,14 +278,14 @@ function renderizarResultado(r) {
       <tbody>${linhas}${extras}</tbody>
     </table>`;
 }
-
 // ---------- Lote ----------
-
 document.querySelectorAll('#secaoLote input').forEach((campo) => {
   campo.addEventListener('input', atualizarBotaoIniciar);
   campo.addEventListener('change', atualizarBotaoIniciar);
 });
-
+// A abertura é a referência do padrão de horários.
+el('dt-abertura').addEventListener('input', aplicarPadraoHorarios);
+el('dt-abertura').addEventListener('change', aplicarPadraoHorarios);
 el('btnIniciar').onclick = () => {
   const datas = lerDatas();
   const erroDatas = validarDatasNaTela(datas);
@@ -284,7 +293,6 @@ el('btnIniciar').onclick = () => {
     mostrarMensagem(erroDatas);
     return;
   }
-
   const v = estado.validacao;
   el('resumoConfirmacao').innerHTML = `
     <ul>
@@ -296,36 +304,32 @@ el('btnIniciar').onclick = () => {
       <li>Fechamento: ${formatarDataHora(datas.fechamento)}</li>
       <li>Usuário do Effort: ${escapar(el('usuario').value.trim())}</li>
     </ul>
-    <p class="alerta">Nesta versão o programa apenas consulta o Effort. Nenhuma OS será aberta ou fechada.</p>`;
+    <p class="alerta">O programa vai abrir, completar e fechar as OS no Effort. Confira os dados antes de iniciar.</p>`;
   el('modal').hidden = false;
 };
-
 el('btnVoltar').onclick = () => {
   el('modal').hidden = true;
 };
-
 el('btnConfirmarInicio').onclick = async () => {
   if (estado.rodando) return;
-
   el('modal').hidden = true;
-
   // A senha sai do campo antes do envio e não fica na tela.
   const credenciais = {
     usuario: el('usuario').value.trim(),
     senha: el('senha').value
   };
   el('senha').value = '';
-
   estado.rodando = true;
   bloquearControles(true);
   el('btnConfirmarInicio').disabled = true;
   el('btnIniciar').disabled = true;
-
   el('secaoProgresso').hidden = false;
   el('progresso').innerHTML = '';
   el('resultadoLote').innerHTML = '';
+  barra.total = estado.validacao ? estado.validacao.total : 0;
+  barra.processados = 0;
+  atualizarBarra();
   mostrarMensagem('Lote em andamento...', 'ok');
-
   try {
     const r = await window.api.iniciarLote({
       planilhaPath: estado.planilhaPath,
@@ -333,13 +337,11 @@ el('btnConfirmarInicio').onclick = async () => {
       datas: lerDatas(),
       credenciais
     });
-
     if (r.erro) {
       mostrarMensagem(r.erro);
     } else {
       mostrarMensagem(r.mensagem, 'ok');
     }
-
     // O lote sempre gera o relatório, inclusive quando é interrompido.
     if (r.relatorio) {
       el('resultadoLote').innerHTML =
@@ -354,21 +356,20 @@ el('btnConfirmarInicio').onclick = async () => {
     atualizarBotaoIniciar();
   }
 };
-
 window.api.onLoteStatus((s) => {
+  barra.processados += 1;
+  atualizarBarra();
   el('progresso').insertAdjacentHTML(
     'beforeend',
     `<tr>
       <td>${escapar(s.codigo)}</td>
-      <td class="${classeSituacao(s.situacao)}">${escapar(s.situacao)}</td>
+      <td><span class="badge ${classeBadge(s.situacao)}">${escapar(s.situacao)}</span></td>
       <td>${escapar(s.motivo || '')}</td>
     </tr>`
   );
 });
-
 // ---------- Inicialização ----------
-
 el('dt-abertura').value = agoraLocal();
-el('dt-inicio').value = agoraLocal();
+aplicarPadraoHorarios();
 atualizarPastaRelatorios();
 atualizarBotaoIniciar();

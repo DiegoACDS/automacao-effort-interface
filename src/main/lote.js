@@ -14,9 +14,18 @@ const {
   consultarEquipamento
 } = require('../automacao/pesquisaEquipamento');
 const { abrirOS, localizarAnexoPorAlx } = require('../automacao/abrirOs');
+const { clicarMaoDeObra, preencherMaoDeObra } = require('../automacao/maoDeObra');
+const { anexarArquivo } = require('../automacao/anexos');
+const { verificarGrade } = require('../automacao/grade');
+const { abrirOsExistente } = require('../automacao/abrirOsExistente');
+const { fecharOs } = require('../automacao/fecharOS');
+const progresso = require('../automacao/progresso');
 
-// 'consulta' só consulta o Effort. 'abertura' consulta e abre a OS.
-const MODO = 'abertura';
+const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// 'consulta' só consulta o Effort. 'completo' abre a OS, lança mão de obra,
+// anexo e fecha a OS.
+const MODO = 'completo';
 
 const ORDEM_DATAS = [
   ['abertura', 'Abertura'],
@@ -69,6 +78,202 @@ function dataHoraAgora() {
   return new Date().toLocaleString('pt-BR');
 }
 
+// Relê a grade da OS até confirmar anexo e mão de obra (completa).
+async function aguardarGradeCompleta(frame, timeoutMs = 30000) {
+  const inicio = Date.now();
+  let ultima = null;
+  while (Date.now() - inicio < timeoutMs) {
+    ultima = await verificarGrade(frame).catch(() => null);
+    if (ultima && ultima.completa) return ultima;
+    await esperar(2000);
+  }
+  return ultima;
+}
+
+// Fecha uma OS cuja grade já está completa. A grade é reconferida
+// antes do fechamento: só fecha OS confirmada.
+async function encerrarOs({
+  page,
+  item,
+  datas,
+  contagem,
+  enviarStatus,
+  origem
+}) {
+  let etapa = `Fechamento (${origem})`;
+  const numeroExterno = progresso.numeroExterno(item.codigo);
+  console.log(
+    `[FECHAMENTO] ${item.codigo}: etapa salva "${progresso.situacao(item.codigo)}", ` +
+    `OS ${numeroExterno}.`
+  );
+
+  const os = await abrirOsExistente(page, numeroExterno);
+  const pageOS = os.frame.page();
+  const frameOS = os.frame;
+
+  const grade = await verificarGrade(frameOS);
+  if (!grade.completa) {
+    throw new Error(
+      'A grade da OS não está completa (mão de obra e anexo). ' +
+      'O fechamento só é executado com a grade confirmada.'
+    );
+  }
+  console.log('[FECHAMENTO] Grade confirmada. Prosseguindo.');
+
+  await fecharOs(frameOS, {
+    fechamento: datas.fechamento,
+    dialogo: contagem.dialogo
+  });
+
+  progresso.registrar(item.codigo, { etapa: 'fechada' });
+  contagem.fechados += 1;
+  enviarStatus({
+    codigo: item.codigo,
+    situacao: 'Fechada',
+    motivo: `OS ${numeroExterno} fechada no Effort`
+  });
+}
+
+// Completa uma OS já aberta, executando apenas o que falta na grade,
+// e fecha a OS ao final.
+async function retomarOs({
+  page,
+  item,
+  caminhoAnexo,
+  datas,
+  contagem,
+  enviarStatus
+}) {
+  const numeroExterno = progresso.numeroExterno(item.codigo);
+  console.log(
+    `[RETOMADA] ${item.codigo}: etapa salva "${progresso.situacao(item.codigo)}", ` +
+    `OS ${numeroExterno}.`
+  );
+
+  const os = await abrirOsExistente(page, numeroExterno);
+  const pageOS = os.frame.page();
+  const frameOS = os.frame;
+
+  const grade = await verificarGrade(frameOS);
+  console.log(
+    `[RETOMADA] Grade da OS: anexo=${grade.anexo}, maoDeObra=${grade.maoDeObra}.`
+  );
+
+  let etapa = 'Mão de obra (retomada)';
+  if (!grade.maoDeObra) {
+    const janela = await clicarMaoDeObra(pageOS, frameOS);
+    await preencherMaoDeObra(janela, {
+      inicio: datas.inicio,
+      termino: datas.termino
+    });
+    progresso.registrar(item.codigo, { etapa: 'mao-de-obra' });
+  } else {
+    console.log('[RETOMADA] Mão de obra já registrada na grade.');
+  }
+
+  etapa = 'Anexo (retomada)';
+  if (!grade.anexo) {
+    await anexarArquivo(pageOS, frameOS, caminhoAnexo);
+  } else {
+    console.log('[RETOMADA] Anexo já registrado na grade.');
+  }
+
+  etapa = 'Conferência da grade (retomada)';
+  const gradeFinal = await aguardarGradeCompleta(frameOS);
+  if (!gradeFinal || !gradeFinal.completa) {
+    throw new Error(
+      'A grade da OS não confirmou anexo e mão de obra após a retomada. ' +
+      'Confira a OS no Effort antes de reprocessar este equipamento.'
+    );
+  }
+
+  progresso.registrar(item.codigo, { etapa: 'completa' });
+
+  // Com a grade confirmada, a OS é fechada na mesma execução.
+  etapa = 'Fechamento (retomada)';
+  await fecharOs(frameOS, {
+    fechamento: datas.fechamento,
+    dialogo: contagem.dialogo
+  });
+  progresso.registrar(item.codigo, { etapa: 'fechada' });
+
+  contagem.concluidos += 1;
+  contagem.fechados += 1;
+  enviarStatus({
+    codigo: item.codigo,
+    situacao: 'Fechada',
+    motivo: `OS ${numeroExterno} completada e fechada na retomada`
+  });
+}
+
+// Fluxo normal: consulta, abre OS nova, mão de obra, anexo, grade e fechamento.
+async function fluxoCompleto({
+  page,
+  item,
+  frameFormulario,
+  caminhoAnexo,
+  datas,
+  contagem,
+  enviarStatus
+}) {
+  const os = await abrirOS({
+    page,
+    frame: frameFormulario,
+    codigoAlx: item.codigo,
+    abertura: datas.abertura
+  });
+
+  if (os.numeroExterno) {
+    progresso.registrar(item.codigo, {
+      etapa: 'aberta',
+      codigoOs: os.codigoOs,
+      numeroExterno: os.numeroExterno
+    });
+  } else {
+    console.warn(
+      `[LOTE] ${item.codigo}: o número externo da OS não foi lido do título. ` +
+      'A retomada desta OS precisará do número informado manualmente.'
+    );
+    progresso.registrar(item.codigo, { etapa: 'aberta', codigoOs: os.codigoOs });
+  }
+
+  let etapa = 'Mão de obra';
+  const janelaMaoDeObra = await clicarMaoDeObra(page, os.frame);
+  await preencherMaoDeObra(janelaMaoDeObra, {
+    inicio: datas.inicio,
+    termino: datas.termino
+  });
+  progresso.registrar(item.codigo, { etapa: 'mao-de-obra' });
+
+  etapa = 'Anexo';
+  await anexarArquivo(page, os.frame, caminhoAnexo);
+
+  etapa = 'Conferência da grade';
+  const grade = await aguardarGradeCompleta(os.frame);
+  if (!grade || !grade.completa) {
+    throw new Error(
+      'A grade da OS não confirmou anexo e mão de obra. ' +
+      'Confira a OS no Effort antes de reprocessar este equipamento.'
+    );
+  }
+  progresso.registrar(item.codigo, { etapa: 'completa' });
+
+  etapa = 'Fechamento';
+  await fecharOs(os.frame, {
+    fechamento: datas.fechamento,
+    dialogo: contagem.dialogo
+  });
+  progresso.registrar(item.codigo, { etapa: 'fechada' });
+
+  contagem.concluidos += 1;
+  contagem.fechados += 1;
+  enviarStatus({
+    codigo: item.codigo,
+    situacao: 'Fechada',
+    motivo: `OS ${os.numeroExterno || os.codigoOs} aberta, completada e fechada`
+  });
+}
+
 async function processarNoEffort({
   itens,
   credenciais,
@@ -80,28 +285,54 @@ async function processarNoEffort({
   const { browser, page } = await abrirNavegador({ headless: false });
   let alertas = [];
 
-  // Alertas do Effort são lidos e dispensados. Nenhum alerta é confirmado,
-  // então nada que crie registro é aceito por esse caminho.
-  page.on('dialog', async (dialogo) => {
-    alertas.push(dialogo.message());
-    console.log(`[ALERTA] ${dialogo.message()}`);
-    await dialogo.dismiss().catch(() => {});
+  // Controle do diálogo: por padrão todo alerta é dispensado. O fechamento
+  // da OS liga o aceite apenas para o alerta disparado pelo próprio clique.
+  const dialogo = { aceitarProximo: false };
+  page.on('dialog', async (aviso) => {
+    alertas.push(aviso.message());
+    console.log(`[ALERTA] ${aviso.message()}`);
+    if (dialogo.aceitarProximo) {
+      dialogo.aceitarProximo = false;
+      await aviso.accept().catch(() => {});
+      console.log('[ALERTA] Aceito (confirmação de fechamento).');
+    } else {
+      await aviso.dismiss().catch(() => {});
+    }
   });
 
-  const contagem = { consultados: 0, abertas: 0, excecoes: 0 };
+  const contagem = {
+    consultados: 0,
+    concluidos: 0,
+    fechados: 0,
+    excecoes: 0,
+    dialogo
+  };
 
   try {
     await fazerLogin(page, credenciais);
 
     for (const item of itens) {
       alertas = [];
+      let etapa = 'Consulta no Effort';
       console.log(`[LOTE] Processando ${item.codigo} (modo: ${MODO})`);
 
       try {
-        // Sem anexo não há abertura. Falha aqui, antes de tocar no Effort.
-        if (MODO === 'abertura') {
-          const anexo = localizarAnexoPorAlx(pastaAnexos, item.codigo);
-          console.log(`[LOTE] Anexo localizado: ${anexo}`);
+        let caminhoAnexo = '';
+        if (MODO !== 'consulta') {
+          caminhoAnexo = localizarAnexoPorAlx(pastaAnexos, item.codigo);
+          console.log(`[LOTE] Anexo localizado: ${caminhoAnexo}`);
+        }
+
+        // Estados finais são pulados.
+        const etapaSalva = progresso.situacao(item.codigo);
+        if (etapaSalva === 'fechada') {
+          console.log(`[LOTE] ${item.codigo} já está fechado. Pulando.`);
+          enviarStatus({
+            codigo: item.codigo,
+            situacao: 'Já fechado',
+            motivo: 'Registrado como fechado em execução anterior'
+          });
+          continue;
         }
 
         await voltarParaInicio(page);
@@ -109,15 +340,44 @@ async function processarNoEffort({
           await fazerLogin(page, credenciais);
         }
 
-        const frame = await abrirFormularioNovaOs(page);
-        const resultado = await consultarEquipamento(frame, item.codigo);
+        // OS com mão de obra e anexo já confirmados: só falta fechar.
+        if (MODO !== 'consulta' && etapaSalva === 'completa') {
+          await encerrarOs({
+            page,
+            item,
+            datas,
+            contagem,
+            enviarStatus,
+            origem: 'progresso completa'
+          });
+          continue;
+        }
+
+        // OS parcial: abre a OS existente, faz o que falta e fecha.
+        if (
+          MODO !== 'consulta' &&
+          (etapaSalva === 'aberta' || etapaSalva === 'mao-de-obra')
+        ) {
+          await retomarOs({
+            page,
+            item,
+            caminhoAnexo,
+            datas,
+            contagem,
+            enviarStatus
+          });
+          continue;
+        }
+
+        const frameFormulario = await abrirFormularioNovaOs(page);
+        const resultado = await consultarEquipamento(frameFormulario, item.codigo);
 
         if (!resultado.ok) {
           contagem.excecoes += 1;
           relatorio.registrar({
             codigo: item.codigo,
             situacao: 'Não confere',
-            etapa: 'Consulta no Effort',
+            etapa,
             motivo: resultado.motivo,
             acao:
               'Verificar o código ALX na planilha ou o cadastro do equipamento no Effort'
@@ -130,29 +390,27 @@ async function processarNoEffort({
           continue;
         }
 
-        if (MODO === 'abertura') {
-          const os = await abrirOS({
-            page,
-            frame,
-            codigoAlx: item.codigo,
-            abertura: datas.abertura
-          });
-          contagem.abertas += 1;
-          enviarStatus({
-            codigo: item.codigo,
-            situacao: 'OS aberta',
-            motivo: `OS ${os.codigoOs}`
-          });
-        } else {
+        if (MODO === 'consulta') {
           contagem.consultados += 1;
           enviarStatus({
             codigo: item.codigo,
             situacao: 'Consultado',
             motivo: resultado.descricao
           });
+          continue;
         }
+
+        await fluxoCompleto({
+          page,
+          item,
+          frameFormulario,
+          caminhoAnexo,
+          datas,
+          contagem,
+          enviarStatus
+        });
       } catch (erro) {
-        console.error(`[LOTE] Erro em ${item.codigo}:`, erro.stack || erro);
+        console.error(`[LOTE] Erro em ${item.codigo} (${etapa}):`, erro.stack || erro);
         contagem.excecoes += 1;
 
         const ultimoAlerta = alertas[alertas.length - 1];
@@ -163,10 +421,10 @@ async function processarNoEffort({
         relatorio.registrar({
           codigo: item.codigo,
           situacao: 'Erro no processamento',
-          etapa: 'Abertura da OS',
+          etapa,
           motivo,
           acao:
-            'Verificar no Effort se a OS foi criada antes de reprocessar este equipamento'
+            'Verificar no Effort o estado da OS antes de reprocessar este equipamento'
         });
         enviarStatus({ codigo: item.codigo, situacao: 'Exceção', motivo });
       }
@@ -185,24 +443,20 @@ async function iniciarLote({
   credenciais,
   enviarStatus = () => {}
 }) {
-  // 1. A pasta de relatórios pode ter sido removida ou bloqueada desde a escolha.
   const pasta = verificarPastaGravavel(pastaBaseRelatorios());
   if (!pasta.ok) {
     return { erro: pasta.motivo };
   }
 
-  // 2. Datas: ausentes, fora de ordem ou futuras.
   const checagemDatas = validarDatas(datas);
   if (checagemDatas.erro) {
     return { erro: checagemDatas.erro };
   }
 
-  // 3. Credenciais: só em memória.
   if (!credenciais?.usuario || !credenciais?.senha) {
     return { erro: 'Informe usuário e senha do Effort.' };
   }
 
-  // 4. Revalidação da planilha e dos PDFs.
   if (!planilhaPath || !pastaAnexos) {
     return { erro: 'Selecione a planilha e a pasta de anexos.' };
   }
@@ -214,7 +468,6 @@ async function iniciarLote({
     return { erro: 'Nenhum equipamento está pronto para o lote.' };
   }
 
-  // 5. Pendências da validação vão para o relatório na hora.
   const relatorio = new RelatorioPendencias(new Date());
   const prontos = [];
 
@@ -236,7 +489,6 @@ async function iniciarLote({
     enviarStatus({ codigo: item.codigo, situacao: 'Pendência', motivo: item.motivo });
   }
 
-  // 6. Consulta e abertura no Effort, um equipamento por vez.
   let contagem;
   try {
     contagem = await processarNoEffort({
@@ -262,32 +514,32 @@ async function iniciarLote({
     };
   }
 
-  // 7. Se não houve exceção, registra uma linha de confirmação.
   if (relatorio.excecoes.length === 0) {
     relatorio.excecoes.push({
       'Data e hora': dataHoraAgora(),
       Situação: 'Nenhuma pendência neste lote',
       Motivo:
-        MODO === 'abertura'
-          ? `${contagem.abertas} OS aberta(s) no Effort.`
-          : `${contagem.consultados} equipamento(s) conferido(s) no Effort. Nenhuma OS foi aberta.`
+        MODO === 'consulta'
+          ? `${contagem.consultados} equipamento(s) conferido(s) no Effort. Nenhuma OS foi aberta.`
+          : `${contagem.fechados} OS fechada(s) no Effort.`
     });
     relatorio.salvar();
   }
 
   const excecoesTotais = contagem.excecoes + (pre.total - pre.ok);
   const mensagemFinal =
-    MODO === 'abertura'
-      ? `Lote concluído: ${contagem.abertas} OS aberta(s) e ${excecoesTotais} exceção(ões).`
-      : `Consulta concluída: ${contagem.consultados} equipamento(s) conferido(s) ` +
-        `no Effort e ${excecoesTotais} exceção(ões). Nenhuma OS foi aberta.`;
+    MODO === 'consulta'
+      ? `Consulta concluída: ${contagem.consultados} equipamento(s) conferido(s) no Effort e ${excecoesTotais} exceção(ões). Nenhuma OS foi aberta.`
+      : `Lote concluído: ${contagem.fechados} OS fechada(s) e ${excecoesTotais} exceção(ões).`;
 
   return {
     mensagem: mensagemFinal,
     total: pre.total,
     ok: pre.ok,
     pendentes: pre.total - pre.ok,
-    abertas: contagem.abertas,
+    abertas: contagem.concluidos,
+    concluidos: contagem.concluidos,
+    fechados: contagem.fechados,
     consultados: contagem.consultados,
     relatorio: relatorio.arquivo
   };

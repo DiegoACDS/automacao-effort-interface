@@ -99,7 +99,6 @@ async function preencher(frame, seletor, valor, nome) {
   await campo.press('Tab').catch(() => {});
   await esperar(800);
 
-  // Compara só os dígitos, porque o Effort pode reformatar a data com barras.
   const atual = (await campo.inputValue()).replace(/\D/g, '');
   if (atual !== valor.replace(/\D/g, '')) {
     throw new Error(`${nome} não ficou com "${valor}" (atual: "${atual}").`);
@@ -107,8 +106,6 @@ async function preencher(frame, seletor, valor, nome) {
   console.log(`[OS] ${nome} = ${valor}`);
 }
 
-// Confere se o equipamento selecionado pelo Effort é o código pesquisado.
-// A pesquisa em si já foi feita por consultarEquipamento, no lote.
 async function confirmarEquipamento(frame, codigoAlx) {
   const equipamento = await frame
     .locator(CAMPOS.equipamentoSelect)
@@ -132,7 +129,6 @@ async function confirmarEquipamento(frame, codigoAlx) {
   return equipamento;
 }
 
-// Lista as URLs de OS já abertas no momento, para não confundir com a nova.
 function codigosDeOsAbertos(page) {
   return new Set(
     page
@@ -152,7 +148,6 @@ async function fecharModalImpressao(page) {
   }
 }
 
-// Aguarda a tela da OS nova, ignorando OS que já estavam abertas.
 async function aguardarOsNova(page, codigosAntes, timeout = 30000) {
   const inicio = Date.now();
   while (Date.now() - inicio < timeout) {
@@ -173,8 +168,26 @@ async function aguardarOsNova(page, codigosAntes, timeout = 30000) {
   );
 }
 
+// Número externo da OS, exibido no título da janela (ex.: "OS - 202691454").
+// Procura em todos os frames, porque o título fica na janela do Desktop.
+async function lerNumeroExternoOs(page) {
+  for (const frame of page.frames()) {
+    const numero = await frame
+      .evaluate(() => {
+        for (const el of document.querySelectorAll('[id$="_titulo"]')) {
+          const m = /^OS\s*-\s*(\d+)/.exec(el.textContent.trim());
+          if (m) return m[1];
+        }
+        return '';
+      })
+      .catch(() => '');
+    if (numero) return numero;
+  }
+  return '';
+}
+
 // Preenche os campos obrigatórios e clica em Abrir OS.
-// Retorna { codigoOs, frame } da OS criada.
+// Retorna { codigoOs, numeroExterno, frame } da OS criada.
 async function abrirOS({ page, frame, codigoAlx, abertura }) {
   const codigo = validarCodigo(codigoAlx);
   const dataHora = separarAbertura(abertura);
@@ -198,13 +211,18 @@ async function abrirOS({ page, frame, codigoAlx, abertura }) {
   await fecharModalImpressao(page);
 
   const os = await aguardarOsNova(page, codigosAntes);
-  console.log(`[OS] OS aberta. Código interno: ${os.codigoOs}`);
-  return os;
+  const numeroExterno = await lerNumeroExternoOs(page);
+  console.log(
+    `[OS] OS aberta. Código interno: ${os.codigoOs}` +
+    (numeroExterno ? ` | Número externo: ${numeroExterno}` : '')
+  );
+  return { ...os, numeroExterno };
 }
 
 module.exports = {
   VALORES,
   abrirOS,
   localizarAnexoPorAlx,
-  separarAbertura
+  separarAbertura,
+  lerNumeroExternoOs
 };
