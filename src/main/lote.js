@@ -18,10 +18,15 @@ const { clicarMaoDeObra, preencherMaoDeObra } = require('../automacao/maoDeObra'
 const { anexarArquivo } = require('../automacao/anexos');
 const { verificarGrade } = require('../automacao/grade');
 const { abrirOsExistente } = require('../automacao/abrirOsExistente');
-const { fecharOs } = require('../automacao/fecharOS');
+const { fecharOs } = require('../automacao/fecharOs');
+const { trazerOsParaFrente, fecharJanelasImpressao } = require('../automacao/janelas');
 const progresso = require('../automacao/progresso');
 
 const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Tempo de espera para o Effort terminar de carregar a OS e a janela de
+// impressão que ele abre sozinho. Use 4000 se ainda aparecer quadro preto.
+const ESPERA_CARREGAMENTO_MS = 3500;
 
 // 'consulta' só consulta o Effort. 'completo' abre a OS, lança mão de obra,
 // anexo e fecha a OS.
@@ -90,6 +95,22 @@ async function aguardarGradeCompleta(frame, timeoutMs = 30000) {
   return ultima;
 }
 
+// Antes de cada etapa que clica nos botões da OS:
+// 1. espera o Effort terminar de carregar;
+// 2. fecha a janela de impressão que ele abriu sozinho;
+// 3. traz a OS para frente pela barra de tarefas.
+async function focarOs(page, numeroExterno) {
+  await esperar(ESPERA_CARREGAMENTO_MS);
+
+  await fecharJanelasImpressao(page.context());
+
+  if (!numeroExterno) {
+    console.warn('[JANELA] Sem número externo: a OS não será trazida para frente.');
+    return;
+  }
+  await trazerOsParaFrente(page.context(), numeroExterno);
+}
+
 // Fecha uma OS cuja grade já está completa. A grade é reconferida
 // antes do fechamento: só fecha OS confirmada.
 async function encerrarOs({
@@ -120,6 +141,7 @@ async function encerrarOs({
   }
   console.log('[FECHAMENTO] Grade confirmada. Prosseguindo.');
 
+  await focarOs(pageOS, numeroExterno);
   await fecharOs(frameOS, {
     fechamento: datas.fechamento,
     dialogo: contagem.dialogo
@@ -135,7 +157,7 @@ async function encerrarOs({
 }
 
 // Completa uma OS já aberta, executando apenas o que falta na grade,
-// e fecha a OS ao final.
+// e fecha a OS ao final. Nunca cria OS nova.
 async function retomarOs({
   page,
   item,
@@ -154,12 +176,13 @@ async function retomarOs({
   const pageOS = os.frame.page();
   const frameOS = os.frame;
 
+  await focarOs(pageOS, numeroExterno);
+
   const grade = await verificarGrade(frameOS);
   console.log(
     `[RETOMADA] Grade da OS: anexo=${grade.anexo}, maoDeObra=${grade.maoDeObra}.`
   );
 
-  let etapa = 'Mão de obra (retomada)';
   if (!grade.maoDeObra) {
     const janela = await clicarMaoDeObra(pageOS, frameOS);
     await preencherMaoDeObra(janela, {
@@ -171,14 +194,13 @@ async function retomarOs({
     console.log('[RETOMADA] Mão de obra já registrada na grade.');
   }
 
-  etapa = 'Anexo (retomada)';
   if (!grade.anexo) {
+    await focarOs(pageOS, numeroExterno);
     await anexarArquivo(pageOS, frameOS, caminhoAnexo);
   } else {
     console.log('[RETOMADA] Anexo já registrado na grade.');
   }
 
-  etapa = 'Conferência da grade (retomada)';
   const gradeFinal = await aguardarGradeCompleta(frameOS);
   if (!gradeFinal || !gradeFinal.completa) {
     throw new Error(
@@ -190,7 +212,7 @@ async function retomarOs({
   progresso.registrar(item.codigo, { etapa: 'completa' });
 
   // Com a grade confirmada, a OS é fechada na mesma execução.
-  etapa = 'Fechamento (retomada)';
+  await focarOs(pageOS, numeroExterno);
   await fecharOs(frameOS, {
     fechamento: datas.fechamento,
     dialogo: contagem.dialogo
@@ -216,6 +238,11 @@ async function fluxoCompleto({
   contagem,
   enviarStatus
 }) {
+  // Marca a intenção de criar a OS antes do clique. Se a execução cair
+  // depois da criação e antes da gravação do número, a próxima execução
+  // vê este estado e não cria outra OS.
+  progresso.registrar(item.codigo, { etapa: 'iniciando' });
+
   const os = await abrirOS({
     page,
     frame: frameFormulario,
@@ -232,12 +259,14 @@ async function fluxoCompleto({
   } else {
     console.warn(
       `[LOTE] ${item.codigo}: o número externo da OS não foi lido do título. ` +
-      'A retomada desta OS precisará do número informado manualmente.'
+      'Informe-o em output/progresso.json para permitir a retomada.'
     );
     progresso.registrar(item.codigo, { etapa: 'aberta', codigoOs: os.codigoOs });
   }
 
-  let etapa = 'Mão de obra';
+  // A janela nova costuma aparecer com a impressão por cima.
+  await focarOs(page, os.numeroExterno);
+
   const janelaMaoDeObra = await clicarMaoDeObra(page, os.frame);
   await preencherMaoDeObra(janelaMaoDeObra, {
     inicio: datas.inicio,
@@ -245,10 +274,8 @@ async function fluxoCompleto({
   });
   progresso.registrar(item.codigo, { etapa: 'mao-de-obra' });
 
-  etapa = 'Anexo';
   await anexarArquivo(page, os.frame, caminhoAnexo);
 
-  etapa = 'Conferência da grade';
   const grade = await aguardarGradeCompleta(os.frame);
   if (!grade || !grade.completa) {
     throw new Error(
@@ -258,7 +285,8 @@ async function fluxoCompleto({
   }
   progresso.registrar(item.codigo, { etapa: 'completa' });
 
-  etapa = 'Fechamento';
+  // O clique em Fechar OS é o ponto mais sensível à impressão por cima.
+  await focarOs(page, os.numeroExterno);
   await fecharOs(os.frame, {
     fechamento: datas.fechamento,
     dialogo: contagem.dialogo
@@ -323,8 +351,9 @@ async function processarNoEffort({
           console.log(`[LOTE] Anexo localizado: ${caminhoAnexo}`);
         }
 
-        // Estados finais são pulados.
         const etapaSalva = progresso.situacao(item.codigo);
+
+        // Estados finais são pulados.
         if (etapaSalva === 'fechada') {
           console.log(`[LOTE] ${item.codigo} já está fechado. Pulando.`);
           enviarStatus({
@@ -332,6 +361,27 @@ async function processarNoEffort({
             situacao: 'Já fechado',
             motivo: 'Registrado como fechado em execução anterior'
           });
+          continue;
+        }
+
+        // Tentativa anterior parou no meio da criação da OS, sem número
+        // registrado. Não cria outra OS: exige verificação manual.
+        if (etapaSalva === 'iniciando') {
+          const motivo =
+            'Uma execução anterior tentou criar a OS e parou sem registrar o número. ' +
+            'Verifique no Effort se já existe OS aberta para este equipamento. ' +
+            'Se existir, informe o número externo em output/progresso.json ' +
+            '(etapa "aberta" e numeroExterno). Se não existir, remova a entrada ' +
+            'deste equipamento do progresso.json.';
+          contagem.excecoes += 1;
+          relatorio.registrar({
+            codigo: item.codigo,
+            situacao: 'Bloqueado: possível OS aberta',
+            etapa: 'Verificação antes de criar OS',
+            motivo,
+            acao: 'Conferir no Effort e ajustar o progresso.json antes de reprocessar'
+          });
+          enviarStatus({ codigo: item.codigo, situacao: 'Exceção', motivo });
           continue;
         }
 
